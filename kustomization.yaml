@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: argo
+resources:
+- https://github.com/argoproj/argo-workflows/releases/download/v3.5.8/install.yaml
+- opentelemetry-collector.yaml
+- opentelemetry-instrumentation.yaml
+
+patches:
+- path: argo-workflow-controller-deployment.yaml
+  target:
+    kind: Deployment
+    name: workflow-controller
+- path: argo-server-deployment.yaml
+  target:
+    kind: Deployment
+    name: argo-server
+- path: argo-workflow-controller-cm.yaml
+  target:
+    kind: ConfigMap
+    name: workflow-controller-configmap

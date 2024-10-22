@@ -1,0 +1,17 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server-patch
+spec:
+  template:
+    spec:
+      # nodeSelector:
+      #   core: "yes"
+      # tolerations:
+      #   - key: "core"
+      #     operator: "Equal"
+      #     value: "yes"
+      #     effect: "NoSchedule"
+      containers:
+        - name: argo-server
+          image: pipekitdev/argocli:latest

@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workflow-controller-patch
+spec:
+  template:
+    metadata:
+      annotations:
+        instrumentation.opentelemetry.io/inject-sdk: "true"
+    spec:
+      # nodeSelector:
+      #   core: "yes"
+      # tolerations:
+      #   - key: "core"
+      #     operator: "Equal"
+      #     value: "yes"
+      #     effect: "NoSchedule"
+      containers:
+        - name: workflow-controller
+          image: pipekitdev/workflow-controller:latest
+          env:
+            - name: DEFAULT_REQUEUE_TIME
+              value: "1s"
