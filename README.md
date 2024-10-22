@@ -38,3 +38,5 @@ Visit grafana on localhost:3000, login as admin/admin and change the password to
 Go to Data Sources -> Add New Data Source -> Tempo. Change the connection URL to http://tempo.tempo.svc.cluster.local:3100 and Save & Test.
 
 `kubectl create -f dag-diamond-trace.yaml` from this repo. If it all works you'll get a running workflow, and a trace button at the top of the page. Go to that and you might see a trace.
+
+You should also get all spans converted to metrics in prometheus, under `span_metrics_`blahblah
