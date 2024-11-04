@@ -1,8 +1,8 @@
 # OTEL Deploy
 
-Build your three images from the tracing base branch.
+Build your three images from the tracing base branch at https://github.com/pipekit/argo-workflows/tree/tracing-base
 
-make argoexec-image
+Make argoexec-image
 make workflow-controller-image
 make argocli-image
 

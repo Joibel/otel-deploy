@@ -32,6 +32,10 @@ spec:
     connectors:
       spanmetrics:
         namespace: span.metrics
+        dimensions:
+          - name: phase
+          - name: workflow
+          - name: message
     processors:
       batch: {}
       memory_limiter:

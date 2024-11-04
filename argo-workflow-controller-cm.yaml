@@ -3,6 +3,7 @@ kind: ConfigMap
 metadata:
   name: workflow-controller-patch
 data:
+  parallelism: "2"
   metricsConfig: |
     metricsTTL: "1m"
     enabled: true
@@ -13,9 +14,9 @@ data:
       requests:
         cpu: 0.01
         memory: 64Mi
-      limits:
-        cpu: 0.2
-        memory: 256Mi
+      # limits:
+      #   cpu: 0.2
+      #   memory: 256Mi
   workflowDefaults: |
     spec:
       podMetadata:
@@ -23,8 +24,8 @@ data:
           # instrumentation.opentelemetry.io/inject-python: "true"
           instrumentation.opentelemetry.io/inject-sdk: "true"
           instrumentation.opentelemetry.io/container-names: "init,wait,main"
-      podGC:
-        strategy: OnPodSuccess
+      # podGC:
+      #   strategy: OnPodSuccess
   artifactRepository: |
     s3:
       bucket: my-bucket
@@ -40,7 +41,7 @@ data:
     # Adds a button to the workflow page. E.g. linking to you logging facility.
     - name: Trace
       scope: workflow
-      url: http://localhost:3000/explore?schemaVersion=1&panes=%7B%22np9%22:%7B%22datasource%22:%22fdyrymf85xibkc%22,%22queries%22:%5B%7B%22query%22:%22${workflow.metadata.annotations.workflows.argoproj.io/trace-id}%22,%22queryType%22:%22traceql%22,%22refId%22:%22A%22,%22limit%22:20,%22tableType%22:%22traces%22%7D%5D,%22range%22:%7B%22from%22:%22now-7d%22,%22to%22:%22now%22%7D%7D%7D&orgId=1    # Adds a button next to the pod.  E.g. linking to you logging facility but for the pod only.
+      url: http://localhost:3000/explore?schemaVersion=1&panes=%7B%22np9%22:%7B%22datasource%22:%22fe2mibm39k934f%22,%22queries%22:%5B%7B%22query%22:%22${workflow.metadata.annotations.workflows.argoproj.io/trace-id}%22,%22queryType%22:%22traceql%22,%22refId%22:%22A%22,%22limit%22:20,%22tableType%22:%22traces%22%7D%5D,%22range%22:%7B%22from%22:%22now-7d%22,%22to%22:%22now%22%7D%7D%7D&orgId=1    # Adds a button next to the pod.  E.g. linking to you logging facility but for the pod only.
     - name: Example Pod Link
       scope: pod
       url: http://logging-facility?namespace=${metadata.namespace}&podName=${metadata.name}&startedAt=${status.startedAt}&finishedAt=${status.finishedAt}
