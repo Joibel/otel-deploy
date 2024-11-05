@@ -11,6 +11,12 @@ In theory these make targets can push the results into k3d for you, I didn't do 
 DOCKER_PUSH=true
 IMAGE_NAMESPACE=pipekitdev
 
+## Helm repos
+
+You will need the following helm repos:
+`helm repo add grafana https://grafana.github.io/helm-charts`
+`helm
+
 ## Starting stuff
 
 Take a deep breath and run deploy.sh
