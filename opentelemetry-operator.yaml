@@ -12439,8 +12439,8 @@ spec:
         app.kubernetes.io/name: opentelemetry-operator
         control-plane: controller-manager
     spec:
-      nodeSelector:
-        kubernetes.io/arch: amd64
+      # nodeSelector:
+      #   kubernetes.io/arch: amd64
       containers:
       - args:
         - --metrics-addr=127.0.0.1:8080

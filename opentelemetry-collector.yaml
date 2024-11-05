@@ -13,7 +13,7 @@ spec:
   #     effect: "NoSchedule"
   autoscaler:
     minReplicas: 1
-    maxReplicas: 2
+    maxReplicas: 1
     targetCPUUtilization: 85
     targetMemoryUtilization: 95
   securityContext:
@@ -36,6 +36,16 @@ spec:
           - name: phase
           - name: workflow
           - name: message
+        histogram:
+          explicit:
+            buckets: [1s, 2s, 3s, 4s, 5s, 6s, 7s, 8s, 9s, 10s, 11s]
+        exclude_dimensions:
+          - instance
+          - job
+          - k8s_node_name
+          - k8s_pod_name
+          - service_instance_id
+          - service_name
     processors:
       batch: {}
       memory_limiter:
