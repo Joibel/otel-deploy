@@ -1,0 +1,144 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  namespace: argo
+  name: argo-workflows-rw-user
+  annotations:
+    workflows.argoproj.io/rbac-rule: "RW user"
+    workflows.argoproj.io/rbac-rule-precedence: "100"
+secrets:
+  - name: argo-workflows-rw-user
+---
+## K8s 1.24 needs this to generate the JWT
+apiVersion: v1
+kind: Secret
+metadata:
+  namespace: argo
+  name: argo-workflows-rw-user
+  annotations:
+    kubernetes.io/service-account.name: argo-workflows-rw-user
+type: kubernetes.io/service-account-token
+---
+# RW r
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  namespace: default
+  name: argo-workflows-rw
+rules:
+  - apiGroups: [""]
+    resources: ["pods/log", "pods", "configmaps"]
+    verbs: ["get", "watch", "list", "delete", "patch"]
+  - apiGroups:
+      - argoproj.io
+    resources:
+      - workflowtaskresults
+    verbs:
+      - create
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  namespace: default
+  name: argo-workflows-rw
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argo-workflows-rw
+subjects:
+  - kind: ServiceAccount
+    name: argo-workflows-rw-user
+    namespace: argo
+  - kind: ServiceAccount
+    name: default
+    namespace: default
+---
+# Permissions to edit everything
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argo-workflows-rw-edit-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: argo-aggregate-to-edit
+subjects:
+  - kind: ServiceAccount
+    name: argo-workflows-rw-user
+    namespace: argo
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: argo-workflows
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "create", "watch", "list", "delete", "patch", "update"]
+# - apiGroups: ["batch"]
+#   resources: ["jobs", "cronjobs"]
+#   verbs: ["list", "get", "create", "delete", "watch", "patch"]
+# - apiGroups: ["velero.io"]
+#   resources: ["backups", "restores", "podvolumerestores"]
+#   verbs: ["list", "get", "create", "delete"]
+# - apiGroups: ["apps"]
+#   resources: ["deployments", "deployments/scale", "statefulsets"]
+#   verbs: ["get", "patch", "create"]
+# - apiGroups: ["networking.k8s.io"]
+#   resources: ["ingresses"]
+#   verbs: ["create"]
+# - apiGroups: ["*"]
+#   resources: ["*"]
+#   verbs: ["get", "list", "describe"]
+# - apiGroups:
+#   - argoproj.io
+#   resources:
+#   - workflows
+#   - workflows/finalizers
+#   - workfloweventbindings
+#   - workfloweventbindings/finalizers
+#   - workflowtemplates
+#   - workflowtemplates/finalizers
+#   - cronworkflows
+#   - cronworkflows/finalizers
+#   - clusterworkflowtemplates
+#   - clusterworkflowtemplates/finalizers
+#   - workflowtasksets
+#   - workflowtasksets/finalizers
+#   - workflowtasksets/status
+#   - applications
+#   - workflowtaskresults
+#   verbs:
+#   - create
+#   - delete
+#   - deletecollection
+#   - get
+#   - list
+#   - patch
+#   - update
+#   - watch
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argo-workflows-cluster-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: argo-workflows
+subjects:
+- kind: ServiceAccount
+  name: argo
+  namespace: argo
+# - kind: ServiceAccount
+#   name: argo
+#   namespace: ci
+# - kind: ServiceAccount
+#   name: argo
+#   namespace: default
+# - kind: ServiceAccount
+#   name: argo-workflows
+#   namespace: argocd
+---
