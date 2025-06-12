@@ -25,7 +25,7 @@ kubectl wait \
 	--namespace=monitoring
 kubectl apply -f kube-prometheus/manifests/
 
-helm install tempo grafana/tempo -n tempo --values tempo-values.yaml || true
+helm install tempo grafana/tempo -n tempo --version 1.21.0 --values tempo-values.yaml || true
 
 kubectl apply -n default -f minio-secret.yaml
 kubectl apply -n argo -f minio-secret.yaml
