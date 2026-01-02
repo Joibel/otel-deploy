@@ -10,7 +10,7 @@ kubectl create namespace minio || true
 kubectl create namespace tempo || true
 
 kubectl apply -f minio-deploy.yaml
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.15.0/cert-manager.yaml
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.19.2/cert-manager.yaml
 while ! kubectl get deployment cert-manager-webhook -n cert-manager; do echo "Waiting for cert manager..."; sleep 1; done
 kubectl rollout status deployment cert-manager-webhook -n cert-manager --timeout=300s
 # wget https://github.com/open-telemetry/opentelemetry-operator/releases/download/v0.109.0/opentelemetry-operator.yaml
@@ -25,11 +25,11 @@ kubectl wait \
 	--namespace=monitoring
 kubectl apply -f kube-prometheus/manifests/
 
-helm install tempo grafana/tempo -n tempo --version 1.21.0 --values tempo-values.yaml || true
+helm install tempo grafana/tempo -n tempo --version 1.24.1 --values tempo-values.yaml || true
 
 kubectl apply -n default -f minio-secret.yaml
 kubectl apply -n argo -f minio-secret.yaml
-kubectl apply -k .
+kubectl apply --server-side -k .
 kubectl apply -f role.yaml
 kubectl apply -f rolebinding.yaml
 kubectl apply -f opentelemetry-instrumentation-default.yaml

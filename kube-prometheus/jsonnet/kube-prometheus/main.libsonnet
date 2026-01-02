@@ -69,12 +69,12 @@ local utils = import './lib/utils.libsonnet';
       version: $.values.common.versions.grafana,
       image: $.values.common.images.grafana,
       prometheusName: $.values.prometheus.name,
-      // TODO(paulfantom) This should be done by iterating over all objects and looking for object.mixin.grafanaDashboards
-      dashboards: $.nodeExporter.mixin.grafanaDashboards +
-                  $.prometheus.mixin.grafanaDashboards +
-                  $.kubernetesControlPlane.mixin.grafanaDashboards +
-                  $.alertmanager.mixin.grafanaDashboards +
-                  $.grafana.mixin.grafanaDashboards,
+      dashboards: {
+        [name]: $[component].mixin.grafanaDashboards[name]
+        for component in std.objectFields($)
+        if std.objectHasAll(std.get($[component], 'mixin', {}), 'grafanaDashboards')
+        for name in std.objectFields($[component].mixin.grafanaDashboards)
+      },
       mixin+: { ruleLabels: $.values.common.ruleLabels },
     },
     kubeStateMetrics: {
@@ -128,6 +128,10 @@ local utils = import './lib/utils.libsonnet';
       namespace: $.values.common.namespace,
       mixin+: { ruleLabels: $.values.common.ruleLabels },
     },
+    kubePrometheus: {
+      namespace: $.values.common.namespace,
+      mixin+: { ruleLabels: $.values.common.ruleLabels },
+    },
   },
 
   alertmanager: alertmanager($.values.alertmanager),
@@ -139,12 +143,7 @@ local utils = import './lib/utils.libsonnet';
   prometheusAdapter: prometheusAdapter($.values.prometheusAdapter),
   prometheusOperator: prometheusOperator($.values.prometheusOperator),
   kubernetesControlPlane: kubernetesControlPlane($.values.kubernetesControlPlane),
-  kubePrometheus: customMixin(
-    {
-      namespace: $.values.common.namespace,
-      mixin+: { ruleLabels: $.values.common.ruleLabels },
-    }
-  ) + {
+  kubePrometheus: customMixin($.values.kubePrometheus) + {
     namespace: {
       apiVersion: 'v1',
       kind: 'Namespace',

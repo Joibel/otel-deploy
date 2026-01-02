@@ -3,7 +3,7 @@ kind: ConfigMap
 metadata:
   name: workflow-controller-patch
 data:
-  parallelism: "2"
+  parallelism: "200"
   metricsConfig: |
     metricsTTL: "1m"
     enabled: true

@@ -6,7 +6,7 @@ metadata:
     app.kubernetes.io/instance: k8s
     app.kubernetes.io/name: prometheus
     app.kubernetes.io/part-of: kube-prometheus
-    app.kubernetes.io/version: 2.53.0
+    app.kubernetes.io/version: 3.5.0
   name: k8s
   namespace: monitoring
 spec:
@@ -16,29 +16,23 @@ spec:
       name: alertmanager-main
       namespace: monitoring
       port: web
-  enableFeatures:
-  - remote-write-receiver
+  enableFeatures: []
   externalLabels: {}
-  image: quay.io/prometheus/prometheus:v2.53.0
-  # nodeSelector:
-  #   core: "yes"
-  # tolerations:
-  #   - key: "core"
-  #     operator: "Equal"
-  #     value: "yes"
-  #     effect: "NoSchedule"
+  image: quay.io/prometheus/prometheus:v3.5.0
+  nodeSelector:
+    kubernetes.io/os: linux
   podMetadata:
     labels:
       app.kubernetes.io/component: prometheus
       app.kubernetes.io/instance: k8s
       app.kubernetes.io/name: prometheus
       app.kubernetes.io/part-of: kube-prometheus
-      app.kubernetes.io/version: 2.53.0
+      app.kubernetes.io/version: 3.5.0
   podMonitorNamespaceSelector: {}
   podMonitorSelector: {}
   probeNamespaceSelector: {}
   probeSelector: {}
-  replicas: 1
+  replicas: 2
   resources:
     requests:
       memory: 400Mi
@@ -53,4 +47,4 @@ spec:
   serviceAccountName: prometheus-k8s
   serviceMonitorNamespaceSelector: {}
   serviceMonitorSelector: {}
-  version: 2.53.0
+  version: 3.5.0

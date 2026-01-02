@@ -12453,6 +12453,7 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: spec.serviceAccountName
+        # image: ghcr.io/open-telemetry/opentelemetry-operator/opentelemetry-operator:0.96.0
         image: joibel/opentelemetry-operator:alan
         imagePullPolicy: Always
         livenessProbe:

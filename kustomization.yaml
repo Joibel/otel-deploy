@@ -3,7 +3,7 @@ kind: Kustomization
 
 namespace: argo
 resources:
-- https://github.com/argoproj/argo-workflows/releases/download/v3.5.8/install.yaml
+- https://github.com/argoproj/argo-workflows/releases/download/v4.0.0-rc2/install.yaml
 - opentelemetry-collector.yaml
 - opentelemetry-instrumentation.yaml
 
