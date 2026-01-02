@@ -13,7 +13,8 @@ kubectl apply -f minio-deploy.yaml
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.19.2/cert-manager.yaml
 while ! kubectl get deployment cert-manager-webhook -n cert-manager; do echo "Waiting for cert manager..."; sleep 1; done
 kubectl rollout status deployment cert-manager-webhook -n cert-manager --timeout=300s
-# wget https://github.com/open-telemetry/opentelemetry-operator/releases/download/v0.109.0/opentelemetry-operator.yaml
+# Based on upstream v0.141.0, patched with joibel/opentelemetry-operator:alan-0.141.1
+# wget https://github.com/open-telemetry/opentelemetry-operator/releases/download/v0.141.0/opentelemetry-operator.yaml
 kubectl apply -f opentelemetry-operator.yaml
 while ! kubectl get deployment opentelemetry-operator-controller-manager -n opentelemetry-operator-system; do echo "Waiting for otel operator..."; sleep 1; done
 kubectl rollout status deployment opentelemetry-operator-controller-manager -n opentelemetry-operator-system --timeout=120s
