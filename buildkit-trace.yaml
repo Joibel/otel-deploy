@@ -67,6 +67,12 @@ spec:
     - name: clone
       container:
         image: alpine/git:v2.54.0
+        # Names this step in the trace. Without it the operator defaults
+        # OTEL_SERVICE_NAME to the pod name, which is long enough to crowd out
+        # the span names in a trace viewer.
+        env:
+          - name: OTEL_SERVICE_NAME
+            value: clone
         command: [sh, -c]
         args:
           - |
@@ -155,6 +161,8 @@ spec:
         image: moby/buildkit:v0.33.0-rootless
         workingDir: /context
         env:
+          - name: OTEL_SERVICE_NAME
+            value: build
           - name: BUILDKITD_FLAGS
             value: --oci-worker-no-process-sandbox
         # Rootless BuildKit needs to escape the default seccomp/AppArmor profiles
