@@ -1,0 +1,163 @@
+# Build the real Argo workflow-controller image from source with BuildKit,
+# traced end to end. Adapted from argo-workflows examples/buildkit-template.yaml.
+#
+# Why this target makes a good tracing demo: argo-workflows' own Dockerfile
+# builds workflow-controller from two independent base images
+#
+#   FROM golang:1.26.5-alpine3.23              AS builder   -> go mod download,
+#                                                              go mod vendor, go build
+#   FROM gcr.io/distroless/static-debian13:... AS workflow-controller
+#
+# BuildKit resolves and pulls both concurrently, so the trace shows the two FROM
+# spans starting on the same timestamp with their layer extracts interleaved.
+# The two branches then run independently - the runtime image is finished long
+# before the binary exists - and rejoin at the COPY --from. BuildKit emits its
+# own OpenTelemetry spans and inherits TRACEPARENT from the executor, so all of
+# that nests under runMainContainer in the workflow's trace.
+#
+# Takes roughly 2 minutes. BuildKit here is ephemeral (buildctl-daemonless.sh in
+# a fresh pod), so there is no cache between runs: every run does the real pulls
+# and a full compile, which is what you want for a demo but means no fast
+# repeats. A long-lived buildkitd with a cache volume is the answer if you ever
+# want speed instead.
+#
+#   kubectl create -n default -f buildkit-controller-trace.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: buildkit-controller-
+spec:
+  entrypoint: main
+  arguments:
+    parameters:
+      - name: repo
+        value: https://github.com/argoproj/argo-workflows
+      - name: branch
+        value: v4.1.3
+      # The last stage in that Dockerfile is argoexec-dev, so the target matters:
+      # without it BuildKit would build the wrong thing. Try argocli for a richer
+      # parallelism demo - it adds node:20-alpine and runs the yarn UI build
+      # concurrently with the Go build.
+      - name: target
+        value: workflow-controller
+      # Pushed to the k3d registry over plain HTTP, so no credentials are needed.
+      # Addressed as host.k3d.internal (the host gateway record k3d injects into
+      # CoreDNS) rather than k3d-registry.localhost: the latter resolves fine but
+      # cannot be connected to from a pod, because curl/Go honour RFC 6761 and
+      # shortcut the .localhost TLD to loopback without consulting the resolver.
+      - name: image
+        value: host.k3d.internal:5000/workflow-controller:v4.1.3
+      # .dockerignore excludes .git (deliberately - it changes on every git run
+      # and breaks build caching), so the Makefile's `git rev-parse HEAD` cannot
+      # work inside the build and would stamp "unknown". The Dockerfile takes
+      # these as build args instead. Keep git-commit in step with branch.
+      - name: git-commit
+        value: 5fdad0fe6f6d740c55d8289f26c912ab711ca407
+      - name: git-tag
+        value: v4.1.3
+  # Shared workspace holding the clone, which is the build context. local-path is
+  # ReadWriteOnce and node-local, but binds WaitForFirstConsumer, so the PV's node
+  # affinity pulls the build pod onto the same node as the clone pod.
+  volumeClaimTemplates:
+    - metadata:
+        name: work
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi
+  templates:
+    - name: main
+      dag:
+        tasks:
+          - name: clone
+            template: clone
+            arguments:
+              parameters:
+                - {name: repo, value: "{{workflow.parameters.repo}}"}
+                - {name: branch, value: "{{workflow.parameters.branch}}"}
+          - name: image
+            template: image
+            depends: "clone"
+            arguments:
+              parameters:
+                - {name: image, value: "{{workflow.parameters.image}}"}
+                - {name: target, value: "{{workflow.parameters.target}}"}
+                - {name: git-commit, value: "{{workflow.parameters.git-commit}}"}
+                - {name: git-tag, value: "{{workflow.parameters.git-tag}}"}
+
+    - name: clone
+      inputs:
+        parameters:
+          - name: repo
+          - name: branch
+      container:
+        image: alpine/git:v2.54.0
+        workingDir: /work
+        volumeMounts:
+          - {mountPath: /work, name: work}
+        args:
+          - clone
+          - --depth
+          - "1"
+          - --branch
+          - "{{inputs.parameters.branch}}"
+          - --single-branch
+          - "{{inputs.parameters.repo}}"
+          - .
+
+    - name: image
+      inputs:
+        parameters:
+          - name: image
+          - name: target
+          - name: git-commit
+          - name: git-tag
+      metadata:
+        annotations:
+          container.apparmor.security.beta.kubernetes.io/main: unconfined
+      container:
+        image: moby/buildkit:v0.33.0-rootless
+        workingDir: /work
+        volumeMounts:
+          - {mountPath: /work, name: work}
+        env:
+          - name: BUILDKITD_FLAGS
+            value: --oci-worker-no-process-sandbox
+        # Rootless BuildKit needs to escape the default seccomp/AppArmor profiles
+        # (see the pod annotation above) but needs no privileged access.
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+          seccompProfile:
+            type: Unconfined
+        resources:
+          requests:
+            cpu: "2"
+            memory: 4Gi
+          limits:
+            memory: 16Gi
+        readinessProbe:
+          exec:
+            command: [sh, -c, "buildctl debug workers"]
+        command: [buildctl-daemonless.sh]
+        args:
+          - build
+          - --frontend
+          - dockerfile.v0
+          - --local
+          - context=.
+          - --local
+          - dockerfile=.
+          - --opt
+          - target={{inputs.parameters.target}}
+          - --opt
+          - build-arg:GIT_COMMIT={{inputs.parameters.git-commit}}
+          - --opt
+          - build-arg:GIT_TAG={{inputs.parameters.git-tag}}
+          - --opt
+          - build-arg:GIT_TREE_STATE=clean
+          - --output
+          - type=image,name={{inputs.parameters.image}},push=true,registry.insecure=true
+          - --progress
+          - plain

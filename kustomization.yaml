@@ -3,20 +3,19 @@ kind: Kustomization
 
 namespace: argo
 resources:
-- https://github.com/argoproj/argo-workflows/releases/download/v4.0.0-rc2/install.yaml
+- https://github.com/argoproj/argo-workflows/releases/download/v4.1.3/install.yaml
 - opentelemetry-collector.yaml
-- opentelemetry-instrumentation.yaml
 
 patches:
 - path: argo-workflow-controller-deployment.yaml
   target:
     kind: Deployment
     name: workflow-controller
-- path: argo-server-deployment.yaml
-  target:
-    kind: Deployment
-    name: argo-server
 - path: argo-workflow-controller-cm.yaml
   target:
     kind: ConfigMap
     name: workflow-controller-configmap
+- path: argo-server-service.yaml
+  target:
+    kind: Service
+    name: argo-server

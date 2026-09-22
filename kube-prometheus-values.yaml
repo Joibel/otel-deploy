@@ -1,0 +1,96 @@
+# Values for prometheus-community/kube-prometheus-stack.
+#
+# This replaces the vendored prometheus-operator/kube-prometheus tree this repo
+# used to carry. Two things that tree got wrong for this setup are fixed here:
+#   * enableRemoteWriteReceiver, without which the collector's
+#     prometheusremotewrite exporter gets a 404 on /api/v1/write
+#   * no NetworkPolicies, which in the vendored tree only allowed port 9090
+#     ingress from pods in the monitoring namespace, blocking the collector
+#     in the argo namespace
+# It also drops prometheus-adapter, which registered v1beta1.metrics.k8s.io and
+# fought the metrics-server k3s installs by default.
+
+# Everything is sized for a single-node-ish demo cluster, not production.
+
+crds:
+  enabled: true
+
+alertmanager:
+  alertmanagerSpec:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+
+prometheus:
+  prometheusSpec:
+    replicas: 1
+    retention: 24h
+    # The OpenTelemetry Collector pushes span metrics here over remote write.
+    enableRemoteWriteReceiver: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 400Mi
+    # Pick up ServiceMonitors/PodMonitors/PrometheusRules from any namespace,
+    # not just ones carrying this release's Helm labels.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    scrapeConfigSelectorNilUsesHelmValues: false
+
+grafana:
+  # Keeps the service name as plain "grafana".
+  fullnameOverride: grafana
+  adminPassword: admin
+  service:
+    type: NodePort
+    port: 3000
+    targetPort: 3000
+    # Reached on http://localhost:3000 via the k3d loadbalancer (see k3d.conf).
+    nodePort: 30300
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  # Fixed UIDs so the Argo UI trace links in argo-workflow-controller-cm.yaml
+  # keep working across redeploys.
+  additionalDataSources:
+    - name: Tempo
+      uid: tempo
+      type: tempo
+      access: proxy
+      url: http://tempo.tempo.svc.cluster.local:3200
+      jsonData:
+        tracesToMetrics:
+          datasourceUid: prometheus
+        serviceMap:
+          datasourceUid: prometheus
+        nodeGraph:
+          enabled: true
+    - name: Jaeger
+      uid: jaeger
+      type: jaeger
+      access: proxy
+      url: http://jaeger.jaeger.svc.cluster.local:16686
+      jsonData:
+        tracesToMetrics:
+          datasourceUid: prometheus
+        nodeGraph:
+          enabled: true
+
+# k3s already runs a metrics-server; the stack does not ship prometheus-adapter,
+# so nothing here competes for the metrics.k8s.io APIService.
+
+# k3s does not expose these components the way a kubeadm cluster does, so their
+# scrape targets would sit permanently down.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeEtcd:
+  enabled: false

@@ -1,0 +1,186 @@
+# A multi-stage BuildKit build, traced end to end, kept deliberately small so the
+# trace is mostly the build graph rather than everything around it.
+#
+# Two independent builder stages are rooted in two different base images:
+#
+#   FROM golang:1.27.1-alpine3.24  AS gobuild   -> compiles a Go binary
+#   FROM node:lts-alpine3.24       AS webbuild  -> builds a static asset
+#   FROM gcr.io/distroless/static-debian13      -> COPY --from both
+#
+# Neither builder depends on the other, so BuildKit resolves and pulls both base
+# images concurrently: in the trace their FROM spans start on the same timestamp
+# and their layer `extract` spans interleave. The branches only meet at the two
+# COPY --from lines in the final stage.
+#
+# BuildKit emits its own OpenTelemetry spans and inherits TRACEPARENT from the
+# executor, so all of that nests under runMainContainer.
+#
+# The clone step is worth watching too, for the opposite reason: git is not
+# OpenTelemetry-aware, so that pod contributes only the spans argoexec emits
+# around it - runInitContainer, runMainContainer, runWaitContainer - with nothing
+# nested inside runMainContainer. Put side by side with the BuildKit step, which
+# is dense with its own spans, it shows exactly what instrumenting a workload
+# does and does not buy you.
+#
+# Design notes, both of which exist to keep the signal-to-noise ratio high:
+#
+#   * The Dockerfile and its sources are inlined as raw artifacts rather than
+#     cloned, so the build needs no shared volume. The clone passes its one
+#     output to the build as an artifact through MinIO instead.
+#   * There is no `#syntax=` directive, so BuildKit uses its built-in dockerfile
+#     frontend instead of pulling docker/dockerfile from the registry first.
+#
+#   kubectl create -n default -f buildkit-trace.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: buildkit-
+spec:
+  entrypoint: main
+  arguments:
+    parameters:
+      # BuildKit runs inside a pod, so it must use host.k3d.internal - client
+      # libraries shortcut the .localhost TLD to loopback per RFC 6761. Pulling
+      # this image back would use k3d-registry.localhost:5000 instead, which is
+      # what the node's registries.yaml mirrors.
+      - name: image
+        value: host.k3d.internal:5000/parallel-demo:1
+      - name: repo
+        value: https://github.com/Joibel/otel-deploy
+      - name: branch
+        value: main
+  templates:
+    - name: main
+      dag:
+        tasks:
+          - name: clone
+            template: clone
+          - name: build
+            template: build
+            depends: "clone"
+            arguments:
+              artifacts:
+                - name: commit
+                  from: "{{tasks.clone.outputs.artifacts.commit}}"
+
+    # Nothing in here emits OpenTelemetry spans of its own.
+    - name: clone
+      container:
+        image: alpine/git:v2.54.0
+        command: [sh, -c]
+        args:
+          - |
+            set -eu
+            mkdir -p /out
+            git clone --depth 1 --single-branch \
+              --branch "{{workflow.parameters.branch}}" \
+              "{{workflow.parameters.repo}}" /src
+            git -C /src rev-parse --short HEAD > /out/COMMIT
+            echo "commit: $(cat /out/COMMIT)"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+      outputs:
+        artifacts:
+          - name: commit
+            path: /out/COMMIT
+            archive:
+              none: {}
+
+    - name: build
+      inputs:
+        artifacts:
+          # Produced by the clone step and stamped into the image below, so the
+          # clone is load-bearing rather than decoration.
+          #
+          # mode matters: artifacts land as 0600 owned by root, and rootless
+          # BuildKit runs as uid 1000, so without this it cannot read the file
+          # and COPY silently puts an empty one in the image.
+          - name: commit
+            path: /context/COMMIT
+            mode: 0644
+          - name: dockerfile
+            path: /context/Dockerfile
+            raw:
+              data: |
+                FROM golang:1.27.1-alpine3.24 AS gobuild
+                WORKDIR /src
+                COPY go.mod main.go ./
+                RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/greet .
+
+                FROM node:lts-alpine3.24 AS webbuild
+                WORKDIR /src
+                COPY build.js ./
+                RUN node build.js /out/index.html
+
+                FROM gcr.io/distroless/static-debian13:latest
+                COPY --from=gobuild  /out/greet       /greet
+                COPY --from=webbuild /out/index.html  /www/index.html
+                COPY COMMIT /commit
+                ENTRYPOINT ["/greet"]
+          - name: gomod
+            path: /context/go.mod
+            raw:
+              data: |
+                module greet
+
+                go 1.27
+          - name: main
+            path: /context/main.go
+            raw:
+              data: |
+                package main
+
+                import "fmt"
+
+                func main() {
+                	fmt.Println("hello from the Go stage")
+                }
+          - name: buildjs
+            path: /context/build.js
+            raw:
+              data: |
+                const fs = require('fs');
+                const path = require('path');
+
+                const out = process.argv[2];
+                fs.mkdirSync(path.dirname(out), {recursive: true});
+                fs.writeFileSync(out, '<!doctype html><title>demo</title>\n');
+                console.log('wrote ' + out);
+      metadata:
+        annotations:
+          container.apparmor.security.beta.kubernetes.io/main: unconfined
+      container:
+        image: moby/buildkit:v0.33.0-rootless
+        workingDir: /context
+        env:
+          - name: BUILDKITD_FLAGS
+            value: --oci-worker-no-process-sandbox
+        # Rootless BuildKit needs to escape the default seccomp/AppArmor profiles
+        # (see the pod annotation above) but needs no privileged access.
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+          seccompProfile:
+            type: Unconfined
+        resources:
+          requests:
+            cpu: "1"
+            memory: 1Gi
+        readinessProbe:
+          exec:
+            command: [sh, -c, "buildctl debug workers"]
+        command: [buildctl-daemonless.sh]
+        args:
+          - build
+          - --frontend
+          - dockerfile.v0
+          - --local
+          - context=/context
+          - --local
+          - dockerfile=/context
+          - --output
+          - type=image,name={{workflow.parameters.image}},push=true,registry.insecure=true
+          - --progress
+          - plain

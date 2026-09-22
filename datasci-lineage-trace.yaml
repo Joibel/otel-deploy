@@ -1,0 +1,164 @@
+# A "data scientist" pipeline whose data lineage is recovered from its own traces.
+#
+# pipeline.py is ordinary psycopg code with no OpenTelemetry imports at all. The
+# OTel operator auto-instruments the container, so every SQL statement becomes a
+# span carrying the statement text in db.statement. The final step reads the trace
+# back out of Jaeger and derives a table-level lineage graph from those spans -
+# it never looks at the pipeline source.
+#
+# Prerequisites:
+#   ./build-datasci.sh          (builds host.k3d.internal:5000/datasci:1)
+#   kubectl apply -f warehouse.yaml
+#
+#   kubectl create -n default -f datasci-lineage-trace.yaml
+#
+# Expected lineage:
+#   orders, order_items            -> daily_revenue
+#   customers, orders, order_items -> customer_ltv
+#   daily_revenue, customer_ltv    -> exec_summary -> (read by report)
+#   products                       -> never read by anything
+#
+# The setup step's DROP/CREATE statements are traced but produce no lineage
+# edges, so the graph shows data flow rather than schema management.
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: datasci-lineage-
+spec:
+  entrypoint: main
+  podMetadata:
+    annotations:
+      # Split the instrumentation by container. argoexec (init/wait) is Go and
+      # takes the SDK-only injection over gRPC; the main container is Python and
+      # takes the Python agent over HTTP. The generic container-names annotation
+      # is overridden here because argo-workflow-controller-cm.yaml sets it to
+      # "init,wait,main" globally, which would inject the main container twice.
+      instrumentation.opentelemetry.io/inject-sdk: "true"
+      instrumentation.opentelemetry.io/container-names: "init,wait"
+      instrumentation.opentelemetry.io/inject-python: "true"
+      instrumentation.opentelemetry.io/python-container-names: "main"
+  arguments:
+    parameters:
+      # Image references are resolved by containerd, which has a mirror for
+      # k3d-registry.localhost:5000 in the node's registries.yaml and so pulls it
+      # over plain HTTP. Note this is NOT the name code inside a pod can use to
+      # reach the registry - see build-datasci.sh and buildkit-controller-trace.yaml.
+      - name: image
+        value: k3d-registry.localhost:5000/datasci:1
+  templates:
+    - name: main
+      dag:
+        tasks:
+          # Creates the derived tables, the way a migration would. It runs, and
+          # it is traced, but it contributes nothing to the lineage graph: DDL
+          # names a table without moving data between tables, so the analyser
+          # finds no edges in it. The transform stages below only INSERT.
+          - name: setup
+            template: stage
+            arguments:
+              parameters: [{name: stage, value: setup}]
+          # Two independent transforms over overlapping raw tables.
+          - name: daily-revenue
+            template: stage
+            depends: "setup"
+            arguments:
+              parameters: [{name: stage, value: daily_revenue}]
+          - name: customer-ltv
+            template: stage
+            depends: "setup"
+            arguments:
+              parameters: [{name: stage, value: customer_ltv}]
+          # Joins the two derived tables.
+          - name: exec-summary
+            template: stage
+            depends: "daily-revenue && customer-ltv"
+            arguments:
+              parameters: [{name: stage, value: exec_summary}]
+          # Read-only leaf.
+          - name: report
+            template: stage
+            depends: "exec-summary"
+            arguments:
+              parameters: [{name: stage, value: report}]
+          # Reads this very trace back from Jaeger and derives the graph.
+          - name: lineage
+            template: lineage
+            depends: "report"
+
+    - name: stage
+      inputs:
+        parameters:
+          - name: stage
+      container:
+        image: "{{workflow.parameters.image}}"
+        # The tag is fixed, so the default IfNotPresent would silently keep a
+        # stale cached image after ./build-datasci.sh rebuilds it. The registry is
+        # in-cluster, so always pulling costs almost nothing.
+        imagePullPolicy: Always
+        workingDir: /app
+        # python -m tracectx runs the pipeline under the workflow's trace context.
+        # See datasci/tracectx.py for why this is needed: the operator's Python
+        # auto-instrumentation does not pick up TRACEPARENT by itself.
+        command: [python, -m, tracectx]
+        args: [/app/pipeline.py, "{{inputs.parameters.stage}}"]
+        env:
+          # The operator appends its injected path to an existing PYTHONPATH
+          # rather than replacing it, so /app survives.
+          - name: PYTHONPATH
+            value: /app
+          # Names this stage in the trace. The operator only sets
+          # OTEL_SERVICE_NAME when it is absent, so this wins - and without it
+          # every pod would be named after the shared "stage" template, making
+          # the lineage graph unable to tell the stages apart.
+          - name: OTEL_SERVICE_NAME
+            value: "{{inputs.parameters.stage}}"
+          - name: PGHOST
+            value: warehouse.warehouse.svc.cluster.local
+          - name: PGDATABASE
+            valueFrom: {secretKeyRef: {name: warehouse, key: POSTGRES_DB}}
+          - name: PGUSER
+            valueFrom: {secretKeyRef: {name: warehouse, key: POSTGRES_USER}}
+          - name: PGPASSWORD
+            valueFrom: {secretKeyRef: {name: warehouse, key: POSTGRES_PASSWORD}}
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+
+    - name: lineage
+      container:
+        image: "{{workflow.parameters.image}}"
+        # The tag is fixed, so the default IfNotPresent would silently keep a
+        # stale cached image after ./build-datasci.sh rebuilds it. The registry is
+        # in-cluster, so always pulling costs almost nothing.
+        imagePullPolicy: Always
+        workingDir: /app
+        command: [python, -m, tracectx]
+        args: [/app/lineage.py, /tmp/lineage]
+        env:
+          - name: PYTHONPATH
+            value: /app
+          - name: OTEL_SERVICE_NAME
+            value: lineage
+          - name: JAEGER_URL
+            value: http://jaeger.jaeger.svc.cluster.local:16686
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+      outputs:
+        artifacts:
+          # Single files with extensions the Argo UI renders inline. It only
+          # auto-renders gif/jpg/jpeg/json/html/png/txt, and refuses anything it
+          # considers a tgz - so `archive: none` matters, and a directory artifact
+          # would be tarred and shown as "cannot be shown because it is a tgz".
+          - name: lineage-report
+            path: /tmp/lineage/lineage.html
+            archive:
+              none: {}
+          - name: lineage-graph
+            path: /tmp/lineage/lineage.png
+            archive:
+              none: {}
+          # .dot and .mmd are written next to these but not exported: the UI would
+          # not render them, and the HTML report already embeds the Mermaid source.

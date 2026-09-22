@@ -6,18 +6,13 @@ spec:
   template:
     metadata:
       annotations:
+        # The OpenTelemetry operator injects OTEL_EXPORTER_OTLP_ENDPOINT (and
+        # friends) from the Instrumentation CR in this namespace. Tracing and
+        # OTLP metrics turn themselves on once that endpoint is set.
         instrumentation.opentelemetry.io/inject-sdk: "true"
     spec:
-      # nodeSelector:
-      #   core: "yes"
-      # tolerations:
-      #   - key: "core"
-      #     operator: "Equal"
-      #     value: "yes"
-      #     effect: "NoSchedule"
       containers:
         - name: workflow-controller
-          image: pipekitdev/workflow-controller:latest
           env:
             - name: DEFAULT_REQUEUE_TIME
               value: "10s"

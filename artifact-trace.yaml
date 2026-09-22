@@ -1,0 +1,40 @@
+# Passes an artifact between two steps, which exercises the artifact spans the
+# executor emits - saveArtifacts/saveArtifact/archiveArtifact on the producer and
+# loadArtifacts/loadArtifact/unarchiveArtifact on the consumer. Artifacts go
+# through MinIO, configured as the artifact repository in
+# argo-workflow-controller-cm.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: artifact-trace-
+spec:
+  entrypoint: main
+  templates:
+    - name: main
+      steps:
+        - - name: generate
+            template: create-artifact
+        - - name: consume
+            template: use-artifact
+            arguments:
+              artifacts:
+                - name: input
+                  from: "{{steps.generate.outputs.artifacts.output}}"
+
+    - name: create-artifact
+      container:
+        image: argoproj/argosay:v2
+        args: ["echo", "tracing-test-data", "/tmp/output.txt"]
+      outputs:
+        artifacts:
+          - name: output
+            path: /tmp/output.txt
+
+    - name: use-artifact
+      inputs:
+        artifacts:
+          - name: input
+            path: /tmp/input.txt
+      container:
+        image: argoproj/argosay:v2
+        args: ["cat", "/tmp/input.txt"]

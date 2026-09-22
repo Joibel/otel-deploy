@@ -29,6 +29,14 @@ rules:
   - apiGroups: [""]
     resources: ["pods/log", "pods", "configmaps"]
     verbs: ["get", "watch", "list", "delete", "patch"]
+  # The artifact server reads artifacts as the logged-in user, so viewing one in
+  # the UI needs read access to the artifact repository credentials. Without this
+  # the Artifacts panel fails with a 500 and the server logs
+  # 'secrets "my-minio-cred" is forbidden'. Scoped to just that secret.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["my-minio-cred"]
+    verbs: ["get"]
   - apiGroups:
       - argoproj.io
     resources:

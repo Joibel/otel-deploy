@@ -1,0 +1,33 @@
+# The smallest end-to-end tracing sample: one pod that emits three spans of its
+# own with otel-cli.
+#
+# The workflow-controller injects a W3C TRACEPARENT env var into every container
+# of a workload pod, and the emissary then overwrites it with the
+# runMainContainer span it has just started. otel-cli reads TRACEPARENT from the
+# environment like any well-behaved OpenTelemetry tool, so these three spans nest
+# under runMainContainer in the workflow's own trace with nothing to plumb.
+#
+#   kubectl create -n default -f otel-cli-trace.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: otel-cli-
+spec:
+  entrypoint: spans
+  templates:
+    - name: spans
+      container:
+        image: ghcr.io/equinix-labs/otel-cli:v0.4.5
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+            echo "TRACEPARENT: ${TRACEPARENT:-<unset>}"
+            /otel-cli exec --name observability -- sleep 3
+            /otel-cli exec --name summit        -- sleep 5
+            /otel-cli exec --name prague        -- sleep 4
+        env:
+          - name: OTEL_EXPORTER_OTLP_PROTOCOL
+            value: grpc
+          - name: OTEL_EXPORTER_OTLP_INSECURE
+            value: "true"

@@ -8,24 +8,22 @@ data:
     metricsTTL: "1m"
     enabled: true
   executor: |
-    image: pipekitdev/argoexec:latest
+    image: quay.io/argoproj/argoexec:v4.1.3
     imagePullPolicy: IfNotPresent
     resources:
       requests:
         cpu: 0.01
         memory: 64Mi
-      # limits:
-      #   cpu: 0.2
-      #   memory: 256Mi
   workflowDefaults: |
     spec:
       podMetadata:
         annotations:
-          # instrumentation.opentelemetry.io/inject-python: "true"
+          # Have the OpenTelemetry operator inject the OTLP endpoint into every
+          # container of the workload pod. init/wait/main are argoexec, which
+          # emits the run*Container spans; init container support landed
+          # upstream in operator v0.146.0 (PR #4635), so no patched operator.
           instrumentation.opentelemetry.io/inject-sdk: "true"
           instrumentation.opentelemetry.io/container-names: "init,wait,main"
-      # podGC:
-      #   strategy: OnPodSuccess
   artifactRepository: |
     s3:
       bucket: my-bucket
@@ -38,10 +36,19 @@ data:
         name: my-minio-cred
         key: secretkey
   links: |
-    # Adds a button to the workflow page. E.g. linking to you logging facility.
-    - name: Trace
+    # Jump straight from a workflow to its trace. The controller stamps the
+    # trace id onto the Workflow as the workflows.argoproj.io/trace-id
+    # annotation, so these need no lookup.
+    - name: Trace in Jaeger
       scope: workflow
-      url: http://localhost:3000/explore?schemaVersion=1&panes=%7B%22np9%22:%7B%22datasource%22:%22fe2mibm39k934f%22,%22queries%22:%5B%7B%22query%22:%22${workflow.metadata.annotations.workflows.argoproj.io/trace-id}%22,%22queryType%22:%22traceql%22,%22refId%22:%22A%22,%22limit%22:20,%22tableType%22:%22traces%22%7D%5D,%22range%22:%7B%22from%22:%22now-7d%22,%22to%22:%22now%22%7D%7D%7D&orgId=1    # Adds a button next to the pod.  E.g. linking to you logging facility but for the pod only.
-    - name: Example Pod Link
+      url: http://localhost:16686/trace/${workflow.metadata.annotations.workflows.argoproj.io/trace-id}
+    - name: Trace in Grafana Tempo
+      scope: workflow
+      url: http://localhost:3000/explore?schemaVersion=1&panes=%7B%22trace%22%3A%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22query%22%3A%22${workflow.metadata.annotations.workflows.argoproj.io/trace-id}%22%2C%22queryType%22%3A%22traceql%22%2C%22limit%22%3A20%2C%22tableType%22%3A%22traces%22%2C%22datasource%22%3A%7B%22type%22%3A%22tempo%22%2C%22uid%22%3A%22tempo%22%7D%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22now-3h%22%2C%22to%22%3A%22now%22%7D%7D%7D&orgId=1
+    # Pod-scope links only get the pod name/namespace and the parent workflow,
+    # hence the workflow.-prefixed trace id. uiFind highlights just this pod's
+    # spans: argoexec reports the pod name as its Jaeger service name, which is
+    # one of the fields uiFind searches.
+    - name: Pod trace in Jaeger
       scope: pod
-      url: http://logging-facility?namespace=${metadata.namespace}&podName=${metadata.name}&startedAt=${status.startedAt}&finishedAt=${status.finishedAt}
+      url: http://localhost:16686/trace/${workflow.metadata.annotations.workflows.argoproj.io/trace-id}?uiFind=${metadata.name}

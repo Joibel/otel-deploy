@@ -22,13 +22,21 @@ spec:
     requests:
       cpu: 50m
       memory: 75Mi
-  image: otel/opentelemetry-collector-contrib:0.141.0
+  image: otel/opentelemetry-collector-contrib:0.161.0
   config:
     receivers:
       otlp:
         protocols:
           grpc:
             endpoint: "0.0.0.0:4317"
+          # Needed for the OpenTelemetry operator's Python auto-instrumentation,
+          # which can only speak http/protobuf: its injected image deliberately
+          # bundles opentelemetry-exporter-otlp-proto-http and no gRPC exporter
+          # ("gRPC is not appropriate for injected auto-instrumentation, where it
+          # has a strict dependency on the OS / Python version"). Go components
+          # (workflow-controller, argoexec) keep using gRPC on 4317.
+          http:
+            endpoint: "0.0.0.0:4318"
     connectors:
       spanmetrics:
         namespace: span.metrics
@@ -52,41 +60,40 @@ spec:
         check_interval: 1s
         limit_percentage: 75
         spike_limit_percentage: 15
-      attributes:
-        actions:
-          - key: otel
-            action: upsert
-            value: "true"
 
     exporters:
       debug:
         verbosity: normal
         sampling_initial: 5
       prometheusremotewrite:
-        endpoint: "http://prometheus-k8s.monitoring.svc.cluster.local:9090/api/v1/write"
+        endpoint: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090/api/v1/write"
         resource_to_telemetry_conversion:
           enabled: true
         remote_write_queue:
           enabled: true
+      # Tempo, queried by Grafana
       otlphttp:
         endpoint: "http://tempo.tempo.svc.cluster.local:4318/"
-        #traces_endpoint: "http://tempo.tempo.svc.cluster.local:4318/otlp/v1/traces"
+        tls:
+          insecure: true
+      # Jaeger, queried by its own UI on http://localhost:16686
+      otlp/jaeger:
+        endpoint: "jaeger.jaeger.svc.cluster.local:4317"
         tls:
           insecure: true
     service:
       pipelines:
         traces:
           receivers: [otlp]
-          processors: [attributes]
-          exporters: [otlphttp, spanmetrics]
+          processors: []
+          exporters: [otlphttp, otlp/jaeger, spanmetrics]
         metrics:
           receivers: [otlp, spanmetrics]
-          processors: [memory_limiter, attributes]
+          processors: [memory_limiter]
           exporters: [prometheusremotewrite, debug]
       telemetry:
         logs:
           level: debug
-          initial_fields:
         metrics:
           readers:
             - pull:
